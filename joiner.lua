@@ -408,13 +408,16 @@ local function notifyLeft()
     httpPost(URL_LEFT, { username = Name })
 end
 
-local function completeHit(hit_id)
+local function completeHit(hit_id, silent)
     httpPost(URL_COMPLETE, {
         hit_id    = hit_id,
         username  = Name,
         game_type = "mm2",
     })
     resetHitState()
+    if not silent then
+        -- addHit() is called by the caller when it wants to count
+    end
 end
 
 -- Tells the worker to PATCH the Discord embed with a joiner status label.
@@ -472,32 +475,142 @@ if not ScreenGui.Parent then
     ScreenGui.Parent = LocalPlayer:WaitForChild("PlayerGui")
 end
 
-local Frame = Instance.new("Frame")
-Frame.Size            = UDim2.new(0, 220, 0, 110)
-Frame.Position        = UDim2.new(0, 10, 0, 10)
-Frame.BackgroundColor3 = Color3.fromRGB(18, 18, 28)
-Frame.BorderSizePixel  = 0
-Frame.Parent           = ScreenGui
-Instance.new("UICorner", Frame).CornerRadius = UDim.new(0, 6)
-local stroke = Instance.new("UIStroke", Frame)
-stroke.Color = Color3.fromRGB(60, 60, 200); stroke.Thickness = 1
+-- ── colours ───────────────────────────────────────────────────────────────────
+local C = {
+    bg       = Color3.fromRGB(10, 10, 18),
+    header   = Color3.fromRGB(16, 16, 30),
+    accent   = Color3.fromRGB(80, 130, 255),
+    dimText  = Color3.fromRGB(120, 120, 155),
+    white    = Color3.fromRGB(230, 230, 240),
+    divider  = Color3.fromRGB(35, 35, 60),
+    green    = Color3.fromRGB(80,  230, 130),
+    yellow   = Color3.fromRGB(255, 210,  70),
+    red      = Color3.fromRGB(255,  80,  80),
+    cyan     = Color3.fromRGB(100, 220, 255),
+}
 
--- drag
+-- ── root frame ────────────────────────────────────────────────────────────────
+local W, H = 262, 174
+local Frame = Instance.new("Frame")
+Frame.Size             = UDim2.new(0, W, 0, H)
+Frame.Position         = UDim2.new(0, 10, 0, 10)
+Frame.BackgroundColor3 = C.bg
+Frame.BorderSizePixel  = 0
+Frame.ClipsDescendants = true
+Frame.Parent           = ScreenGui
+Instance.new("UICorner", Frame).CornerRadius = UDim.new(0, 8)
+local outerStroke = Instance.new("UIStroke", Frame)
+outerStroke.Color     = C.accent
+outerStroke.Thickness = 1.5
+
+-- header bar
+local Header = Instance.new("Frame")
+Header.Size             = UDim2.new(1, 0, 0, 32)
+Header.Position         = UDim2.new(0, 0, 0, 0)
+Header.BackgroundColor3 = C.header
+Header.BorderSizePixel  = 0
+Header.Parent           = Frame
+Instance.new("UICorner", Header).CornerRadius = UDim.new(0, 8)
+-- bottom corners square so it blends into body
+local hFix = Instance.new("Frame")
+hFix.Size             = UDim2.new(1, 0, 0, 10)
+hFix.Position         = UDim2.new(0, 0, 1, -10)
+hFix.BackgroundColor3 = C.header
+hFix.BorderSizePixel  = 0
+hFix.Parent           = Header
+
+-- accent stripe on the left of header
+local Stripe = Instance.new("Frame")
+Stripe.Size             = UDim2.new(0, 3, 1, 0)
+Stripe.BackgroundColor3 = C.accent
+Stripe.BorderSizePixel  = 0
+Stripe.Parent           = Header
+Instance.new("UICorner", Stripe).CornerRadius = UDim.new(0, 2)
+
+local function newLabel(parent, text, x, y, w, h, font, size, color, alignX)
+    local l = Instance.new("TextLabel")
+    l.Size                  = UDim2.new(0, w, 0, h)
+    l.Position              = UDim2.new(0, x, 0, y)
+    l.BackgroundTransparency = 1
+    l.Text                  = text
+    l.Font                  = font  or Enum.Font.Gotham
+    l.TextSize              = size  or 11
+    l.TextColor3            = color or C.white
+    l.TextXAlignment        = alignX or Enum.TextXAlignment.Left
+    l.TextTruncate          = Enum.TextTruncate.AtEnd
+    l.Parent                = parent
+    return l
+end
+
+-- header title
+newLabel(Header, "⚡  CROSSAINT  MM2  JOINER", 10, 0, 180, 32,
+    Enum.Font.GothamBold, 12, C.accent)
+-- version badge
+newLabel(Header, "v2", W - 30, 0, 24, 32,
+    Enum.Font.GothamBold, 10, C.dimText, Enum.TextXAlignment.Right)
+
+-- ── divider helper ────────────────────────────────────────────────────────────
+local function divider(yPos)
+    local d = Instance.new("Frame")
+    d.Size             = UDim2.new(1, -16, 0, 1)
+    d.Position         = UDim2.new(0, 8, 0, yPos)
+    d.BackgroundColor3 = C.divider
+    d.BorderSizePixel  = 0
+    d.Parent           = Frame
+end
+
+-- ── body labels ──────────────────────────────────────────────────────────────
+-- row 1: user
+divider(36)
+newLabel(Frame, "👤", 10, 40, 18, 16, Enum.Font.Gotham, 12, C.dimText)
+newLabel(Frame, Name, 30, 40, W - 36, 16, Enum.Font.GothamBold, 11, C.white)
+
+-- row 2: status (larger, color-reactive)
+divider(60)
+local lblStatus = newLabel(Frame, "⏳  Starting...", 10, 65, W - 16, 20,
+    Enum.Font.GothamBold, 13, C.yellow)
+
+-- row 3: sender info
+divider(90)
+local lblSender = newLabel(Frame, "🎯  —", 10, 95, W - 16, 16,
+    Enum.Font.Gotham, 11, C.dimText)
+
+-- row 4: action
+divider(115)
+local lblAction = newLabel(Frame, "🔧  —", 10, 119, W - 16, 16,
+    Enum.Font.Gotham, 11, C.cyan)
+
+-- row 5: bottom bar (timer | hits | worker dot)
+divider(139)
+local lblTimer  = newLabel(Frame, "⏱  0s",    10,  146, 100, 16, Enum.Font.Gotham, 10, C.dimText)
+local lblHits   = newLabel(Frame, "✅  0 hits", 110, 146, 80,  16, Enum.Font.Gotham, 10, C.green)
+local lblWorker = newLabel(Frame, "📡 —",      196, 146, 60,  16, Enum.Font.Gotham, 10, C.dimText,
+    Enum.TextXAlignment.Right)
+
+-- ── hit counter (incremented by completeHit) ─────────────────────────────────
+local hitsCompleted = 0
+
+-- ── drag ─────────────────────────────────────────────────────────────────────
 local dragging, dragStart, startPos
 Frame.InputBegan:Connect(function(input)
-    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+    if input.UserInputType == Enum.UserInputType.MouseButton1
+    or input.UserInputType == Enum.UserInputType.Touch then
         dragging  = true
         dragStart = input.Position
         startPos  = Frame.Position
     end
 end)
 Frame.InputEnded:Connect(function(input)
-    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+    if input.UserInputType == Enum.UserInputType.MouseButton1
+    or input.UserInputType == Enum.UserInputType.Touch then
         dragging = false
     end
 end)
 UserInputService.InputChanged:Connect(function(input)
-    if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
+    if dragging and (
+        input.UserInputType == Enum.UserInputType.MouseMovement
+     or input.UserInputType == Enum.UserInputType.Touch
+    ) then
         local delta = input.Position - dragStart
         Frame.Position = UDim2.new(
             startPos.X.Scale, startPos.X.Offset + delta.X,
@@ -506,69 +619,70 @@ UserInputService.InputChanged:Connect(function(input)
     end
 end)
 
-local function mkLabel(text, yOff, color, bold)
-    local lbl = Instance.new("TextLabel")
-    lbl.Size                = UDim2.new(1, -10, 0, 18)
-    lbl.Position            = UDim2.new(0, 8, 0, yOff)
-    lbl.BackgroundTransparency = 1
-    lbl.Text                = text
-    lbl.TextColor3          = color or Color3.fromRGB(220, 220, 220)
-    lbl.Font                = bold and Enum.Font.GothamBold or Enum.Font.Gotham
-    lbl.TextSize            = bold and 13 or 11
-    lbl.TextXAlignment      = Enum.TextXAlignment.Left
-    lbl.Parent              = Frame
-    return lbl
-end
-
-mkLabel("⚡ CROSSAINT MM2 JOINER v2", 5, Color3.fromRGB(80, 150, 255), true)
-mkLabel("User: " .. Name, 24, Color3.fromRGB(180, 180, 200))
-
-local lblStatus = mkLabel("Status: Starting...", 42, Color3.fromRGB(220, 220, 220))
-local lblAction = mkLabel("Action: —",           60, Color3.fromRGB(150, 220, 255))
-local lblTimer  = mkLabel("⏱️ 0s",               78, Color3.fromRGB(200, 200, 255))
-
+-- ── uptime ticker ─────────────────────────────────────────────────────────────
 local startTime = tick()
 task.spawn(function()
     while true do
         task.wait(1)
-        local elapsed = tick() - startTime
-        local d = math.floor(elapsed / 86400)
-        local h = math.floor(elapsed / 3600 % 24)
-        local m = math.floor(elapsed / 60 % 60)
-        local s = math.floor(elapsed % 60)
-
+        local e = tick() - startTime
+        local d = math.floor(e / 86400)
+        local h = math.floor(e / 3600 % 24)
+        local m = math.floor(e / 60   % 60)
+        local s = math.floor(e        % 60)
         if d > 0 then
-            lblTimer.Text = string.format("⏱️ %dd %dh %dm %ds", d, h, m, s)
+            lblTimer.Text = string.format("⏱  %dd %dh %dm", d, h, m)
         elseif h > 0 then
-            lblTimer.Text = string.format("⏱️ %dh %dm %ds", h, m, s)
+            lblTimer.Text = string.format("⏱  %dh %dm %ds", h, m, s)
         elseif m > 0 then
-            lblTimer.Text = string.format("⏱️ %dm %ds", m, s)
+            lblTimer.Text = string.format("⏱  %dm %ds", m, s)
         else
-            lblTimer.Text = string.format("⏱️ %ds", s)
+            lblTimer.Text = string.format("⏱  %ds", s)
         end
     end
 end)
 
+-- ── public setters ────────────────────────────────────────────────────────────
 local function setStatus(text, color)
-    lblStatus.Text       = "Status: " .. text
-    lblStatus.TextColor3 = color or Color3.fromRGB(220, 220, 220)
+    lblStatus.Text       = text
+    lblStatus.TextColor3 = color or C.white
 end
 
 local function setAction(text)
-    lblAction.Text = "Action: " .. text
+    lblAction.Text = "🔧  " .. text
+end
+
+local function setSender(text)
+    lblSender.Text = "🎯  " .. (text or "—")
+end
+
+local function addHit()
+    hitsCompleted = hitsCompleted + 1
+    lblHits.Text  = "✅  " .. hitsCompleted .. " hit" .. (hitsCompleted == 1 and "" or "s")
+end
+
+local function setWorker(ok)
+    if ok then
+        lblWorker.Text       = "📡  OK"
+        lblWorker.TextColor3 = C.green
+    else
+        lblWorker.Text       = "📡  DOWN"
+        lblWorker.TextColor3 = C.red
+    end
 end
 
 -- ── startup connectivity check ────────────────────────────────────────────────
 task.spawn(function()
     task.wait(1)
-    setStatus("🔌 Connecting...", Color3.fromRGB(200, 200, 100))
+    setStatus("🔌  Connecting...", C.yellow)
     local ping = httpGet(API_BASE .. "/health")
     if ping then
         print("[CROSSAINT] ✅ Worker reachable — hits in queue: " .. tostring(ping.hits or 0))
-        setStatus("✅ Worker OK", Color3.fromRGB(80, 255, 120))
+        setStatus("✅  Worker OK", C.green)
+        setWorker(true)
     else
         warn("[CROSSAINT] ❌ Worker unreachable — " .. lastHttpErr)
-        setStatus("❌ Worker down: " .. lastHttpErr, Color3.fromRGB(255, 60, 60))
+        setStatus("❌  " .. lastHttpErr, C.red)
+        setWorker(false)
     end
     task.wait(1.5)
 end)
@@ -588,17 +702,20 @@ task.spawn(function()
         local data = httpGet(statusUrl)
 
         if not data then
-            setStatus("⚠️ " .. lastHttpErr, Color3.fromRGB(255, 100, 100))
+            setStatus("⚠️  " .. lastHttpErr, C.red)
+            setWorker(false)
             warn("[CROSSAINT] httpGet failed — " .. lastHttpErr .. " | URL: " .. statusUrl)
             continue
         end
 
+        setWorker(true)
         local action = data.action
 
         -- ── IDLE ──────────────────────────────────────────────────────────────
         if action == "idle" then
-            setStatus("🔍 Polling...", Color3.fromRGB(180, 180, 220))
+            setStatus("🔍  Polling...", C.dimText)
             setAction("idle")
+            setSender(nil)
             resetHitState()
             continue
         end
@@ -613,12 +730,13 @@ task.spawn(function()
 
             if data.job_id == JOBID then
                 -- already here
-                setStatus("✅ Already in server", Color3.fromRGB(100, 255, 180))
+                setStatus("✅  Already in server", C.green)
                 continue
             end
 
-            setStatus("🚀 Teleporting to " .. (data.sender or "?") .. "...", Color3.fromRGB(80, 255, 120))
-            setAction("teleport → " .. tostring(data.job_id):sub(1, 16) .. "…")
+            setStatus("🚀  Teleporting...", C.green)
+            setAction("→ " .. tostring(data.job_id):sub(1, 20) .. "…")
+            setSender(data.sender or "?")
             print("[CROSSAINT] 🎯 HIT! Sender:", data.sender, "| Job:", data.job_id)
             patchEmbed("🚀 Teleporting...")
 
@@ -626,9 +744,8 @@ task.spawn(function()
 
             if result == "success" then
                 print("[CROSSAINT] ✅ Teleporting — autoexec will resume in new server")
-                -- script will restart in new server via autoexec; don't complete hit here
             else
-                setStatus("❌ Teleport " .. result .. " — skipping", Color3.fromRGB(255, 80, 80))
+                setStatus("❌  Teleport " .. result, C.red)
                 completeHit(data.hit_id)
             end
 
@@ -652,6 +769,7 @@ task.spawn(function()
 
             local elapsed = tick() - watchStartedAt
             local sender  = data.sender
+            setSender(sender)
 
             -- check if sender is currently in the server
             local senderHere = isPlayerInServer(sender)
@@ -662,24 +780,28 @@ task.spawn(function()
                     patchEmbed("👀 Watching sender...")
                 end
                 senderSeen = true
-                setStatus("👀 " .. (sender or "?") .. " is trading...", Color3.fromRGB(100, 255, 180))
+                setStatus("👀  " .. (sender or "?") .. " trading...", C.green)
             elseif senderSeen then
                 -- sender WAS here but left → trade done
-                setStatus("✅ Sender left — hit complete!", Color3.fromRGB(80, 255, 120))
+                setStatus("✅  Hit complete!", C.green)
                 print("[CROSSAINT] ✅ Sender left after trade — completing hit")
+                addHit()
                 completeHit(data.hit_id)
+                setSender(nil)
                 continue
             else
                 -- sender hasn't arrived yet
-                setStatus("👀 Waiting for " .. (sender or "?") .. "…", Color3.fromRGB(255, 200, 80))
+                local wait = math.floor(elapsed)
+                setStatus("👀  Waiting for " .. (sender or "?") .. "… " .. wait .. "s", C.yellow)
                 print("[CROSSAINT] 👁️ Watch mode — waiting for sender:", sender)
             end
 
             -- timeout: 90 seconds
             if elapsed >= 90 then
-                setStatus("⏰ Watch timeout — giving up", Color3.fromRGB(255, 100, 50))
+                setStatus("⏰  Watch timeout", C.red)
                 print("[CROSSAINT] ⏰ Watch timeout — completing hit as failed")
                 completeHit(data.hit_id)
+                setSender(nil)
                 continue
             end
 
@@ -687,7 +809,8 @@ task.spawn(function()
         end
 
         -- unknown action — treat as idle
-        setStatus("🔍 Polling...", Color3.fromRGB(180, 180, 220))
+        setStatus("🔍  Polling...", C.dimText)
+        setSender(nil)
         resetHitState()
     end
 end)

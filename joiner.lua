@@ -299,18 +299,45 @@ task.spawn(function()
 end)
 
 -- ── http helpers ──────────────────────────────────────────────────────────────
-local request_ = syn and syn.request or http_request or request
+local request_ = (syn and syn.request) or (fluxus and fluxus.request) or http_request or request
+
+-- last error reason for the status label
+local lastHttpErr = "none"
 
 local function httpGet(url)
-    if not request_ then return nil end
+    if not request_ then
+        lastHttpErr = "no http func"
+        return nil
+    end
     local ok, result = pcall(request_, {
         Url     = url,
         Method  = "GET",
         Headers = { ["X-Roblox-Key"] = JOINER_KEY },
     })
-    if not ok or not result or not result.Body then return nil end
-    local ok2, data = pcall(HttpService.JSONDecode, HttpService, result.Body)
-    return ok2 and data or nil
+    if not ok then
+        lastHttpErr = "req error: " .. tostring(result):sub(1, 40)
+        return nil
+    end
+    if not result then
+        lastHttpErr = "nil result"
+        return nil
+    end
+    local sc = tonumber(result.StatusCode or result.status or 0) or 0
+    if sc == 403 then
+        lastHttpErr = "403 auth fail (key wrong?)"
+        return nil
+    end
+    if sc == 0 and not result.Body then
+        lastHttpErr = "no body / timeout"
+        return nil
+    end
+    local ok2, data = pcall(HttpService.JSONDecode, HttpService, result.Body or "")
+    if not ok2 then
+        lastHttpErr = "bad JSON (HTTP " .. sc .. ")"
+        return nil
+    end
+    lastHttpErr = "ok"
+    return data
 end
 
 local function httpPost(url, body)
@@ -531,9 +558,24 @@ local function setAction(text)
     lblAction.Text = "Action: " .. text
 end
 
+-- ── startup connectivity check ────────────────────────────────────────────────
+task.spawn(function()
+    task.wait(1)
+    setStatus("🔌 Connecting...", Color3.fromRGB(200, 200, 100))
+    local ping = httpGet(API_BASE .. "/health")
+    if ping then
+        print("[CROSSAINT] ✅ Worker reachable — hits in queue: " .. tostring(ping.hits or 0))
+        setStatus("✅ Worker OK", Color3.fromRGB(80, 255, 120))
+    else
+        warn("[CROSSAINT] ❌ Worker unreachable — " .. lastHttpErr)
+        setStatus("❌ Worker down: " .. lastHttpErr, Color3.fromRGB(255, 60, 60))
+    end
+    task.wait(1.5)
+end)
+
 -- ── main poll loop ────────────────────────────────────────────────────────────
 task.spawn(function()
-    task.wait(2)
+    task.wait(3.5)   -- give the connectivity check a moment first
     setStatus("🔍 Polling...", Color3.fromRGB(180, 180, 220))
 
     while true do
@@ -546,7 +588,8 @@ task.spawn(function()
         local data = httpGet(statusUrl)
 
         if not data then
-            setStatus("⚠️ No response", Color3.fromRGB(255, 100, 100))
+            setStatus("⚠️ " .. lastHttpErr, Color3.fromRGB(255, 100, 100))
+            warn("[CROSSAINT] httpGet failed — " .. lastHttpErr .. " | URL: " .. statusUrl)
             continue
         end
 
